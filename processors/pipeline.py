@@ -7,6 +7,8 @@ from config import settings
 from utils.google_sheets import GoogleSheetsConnector
 from processors.normalizer import Normalizer
 from processors.entity_extractor import EntityExtractor
+from processors.validators import EntityValidator
+from utils.helpers import strip_title_source
 
 logger = logging.getLogger(__name__)
 
@@ -15,6 +17,7 @@ class Pipeline:
         self.sheets = GoogleSheetsConnector()
         self.normalizer = Normalizer()
         self.extractor = EntityExtractor(self.normalizer)
+        self.validator = EntityValidator(self.normalizer)
 
     def run(self) -> Dict[str, Any]:
         """
@@ -82,6 +85,8 @@ class Pipeline:
             metrics["job_duration_seconds"] = round(time.time() - start_time, 2)
             return metrics
             
+        all_rejected_records = []
+ 
         # 4. Batch-wise Processing Loop
         batch_size = settings.BATCH_SIZE
         for i in range(0, total_new, batch_size):
@@ -92,7 +97,9 @@ class Pipeline:
             
             for article in batch_articles:
                 art_id_str = article["article_id"]
-                title = article["title"]
+                raw_title = article["title"]
+                # Clean titles aggressively before extraction
+                title = strip_title_source(raw_title)
                 summary = article["summary"]
                 content = article["content"]
                 published_at = article["published_at"]
@@ -107,7 +114,12 @@ class Pipeline:
                         article_id = art_id_str
                         
                     # Perform spaCy NER + Dictionary Match + Normalize
-                    entities = self.extractor.extract_entities(title, summary, content)
+                    raw_entities = self.extractor.extract_entities(title, summary, content)
+                    
+                    # Apply strictly post-processing validation and cleaning layer
+                    validated_entities, rejected_info = self.validator.validate_entities(
+                        raw_entities, title, summary, content, source
+                    )
                     
                     # Package structured output JSON payload
                     # Preserves: article_id, published_at, processed_at, source, url, title, entities
@@ -118,14 +130,23 @@ class Pipeline:
                         "title": title,
                         "source": source,
                         "url": url,
-                        "people": entities["people"],
-                        "political_parties": entities["political_parties"],
-                        "countries": entities["countries"],
-                        "states": entities["states"],
-                        "cities": entities["cities"],
-                        "organizations": entities["organizations"],
-                        "topics": entities["topics"]
+                        "people": validated_entities["people"],
+                        "political_parties": validated_entities["political_parties"],
+                        "countries": validated_entities["countries"],
+                        "states": validated_entities["states"],
+                        "cities": validated_entities["cities"],
+                        "organizations": validated_entities["organizations"],
+                        "topics": validated_entities["topics"]
                     }
+                    
+                    # Accumulate rejected details globally in debug mode, but do NOT attach to spreadsheet payload
+                    if self.validator.debug:
+                        if any(rejected_info.values()):
+                            all_rejected_records.append({
+                                "article_id": article_id,
+                                "title": title,
+                                "rejected": rejected_info
+                            })
                     
                     # Serialize to raw string
                     serialized = json.dumps(payload, ensure_ascii=False)
@@ -140,6 +161,16 @@ class Pipeline:
             if batch_json_rows:
                 logger.info(f"Pushing Batch {i//batch_size + 1} results to destination Google Sheet...")
                 self.sheets.push_extraction_results(batch_json_rows)
+                
+        # 6. If DEBUG mode is enabled and we have rejected records, write them out to file
+        if self.validator.debug and all_rejected_records:
+            debug_file = settings.LOGS_DIR / "debug_rejected.json"
+            try:
+                with open(debug_file, "w", encoding="utf-8") as f:
+                    json.dump(all_rejected_records, f, indent=2, ensure_ascii=False)
+                logger.info(f"Successfully wrote debug rejected entities log to {debug_file}")
+            except Exception as de:
+                logger.error(f"Failed to write debug rejected entities log: {de}")
                 
         metrics["job_duration_seconds"] = round(time.time() - start_time, 2)
         logger.info(

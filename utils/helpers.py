@@ -105,3 +105,43 @@ def google_api_retry(max_retries: int = 5, initial_delay: float = 1.0, backoff_f
             
         return wrapper
     return decorator
+
+def strip_title_source(title: str) -> str:
+    """
+    Cleans titles aggressively by stripping publisher suffixes, category suffixes, 
+    RSS markers, and live update tags to prevent NER poisoning.
+    """
+    if not title:
+        return ""
+        
+    cleaned = title.strip()
+    
+    # 1. Remove prefixes like "LIVE:", "LIVE Updates:", "Breaking:"
+    prefixes_to_strip = [
+        r"^live\s*updates?:?\s*",
+        r"^live\s*blog?:?\s*",
+        r"^breaking\s*(news)?:?\s*",
+        r"^live\s*:\s*",
+        r"^updates\s*:\s*",
+        r"^exclusive\s*:\s*"
+    ]
+    for pattern in prefixes_to_strip:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+        
+    # 2. Clean tail publisher metadata suffixes
+    # Matches a separator ( - or | or • or : ) followed by typical news site words or domain extensions
+    tail_regexes = [
+        # Match vertical bar or hyphen followed by standard publisher terms
+        r"\s+[-|•:]\s+.*(?:hindu|guardian|bbc|dawn|toi|times|reuters|al\s*jazeera|independent|financial\s*times|bloomberg|ap|afp|pti|news|report|live|updates|com|org|net|co\.uk).*$",
+        # Match standard brackets ending with news source
+        r"\s*\([^)]*(?:hindu|guardian|bbc|toi|times|reuters|al\s*jazeera|news|ap|afp|pti)[^)]*\)$",
+        # Generic vertical bar tail strip (vertical bars are almost exclusively used for source branding)
+        r"\s+\|\s+[^|]+$",
+        # Generic hyphen tail strip if it contains domain extensions
+        r"\s+-\s+[\w\d.-]+\.(?:com|org|net|in|co|gov|edu|info|io)(?:/.*)?$"
+    ]
+    
+    for pattern in tail_regexes:
+        cleaned = re.sub(pattern, "", cleaned, flags=re.IGNORECASE)
+        
+    return cleaned.strip()

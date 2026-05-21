@@ -30,6 +30,8 @@ SPACY_MODEL = os.getenv("SPACY_MODEL", "en_core_web_sm")
 LOOKBACK_ROWS = int(os.getenv("LOOKBACK_ROWS", "2000"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
 MAX_ARTICLES_PER_RUN = int(os.getenv("MAX_ARTICLES_PER_RUN", "1000"))
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+MIN_CONFIDENCE_THRESHOLD = float(os.getenv("MIN_CONFIDENCE_THRESHOLD", "0.5"))
 
 
 # Retry limits for Google Sheets API requests

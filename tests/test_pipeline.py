@@ -9,7 +9,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from processors.normalizer import Normalizer
 from processors.entity_extractor import EntityExtractor
-from utils.helpers import format_entity_name, google_api_retry
+from processors.validators import EntityValidator
+from utils.helpers import format_entity_name, google_api_retry, strip_title_source
 from utils.google_sheets import GoogleSheetsConnector
 
 class TestNormalizer(unittest.TestCase):
@@ -264,6 +265,287 @@ class TestSheetsRowParser(unittest.TestCase):
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed["summary"], "Actual description content")
         self.assertEqual(parsed["content"], "Actual body content")
+
+
+class TestEntityValidator(unittest.TestCase):
+    def setUp(self):
+        self.normalizer = Normalizer()
+        self.validator = EntityValidator(self.normalizer)
+        self.validator.min_confidence = 0.5
+
+    def test_clean_entity_text(self):
+        """
+        Verify that trailing possessive 's and curly ’s are cleaned.
+        """
+        self.assertEqual(self.validator.clean_entity_text("Trump's"), "Trump")
+        self.assertEqual(self.validator.clean_entity_text("Khamanei’s"), "Khamanei")
+        self.assertEqual(self.validator.clean_entity_text("'Modi'"), "Modi")
+        self.assertEqual(self.validator.clean_entity_text("Stalin’s"), "Stalin")
+        self.assertEqual(self.validator.clean_entity_text("Congress’"), "Congress")
+
+    def test_noise_filtering(self):
+        """
+        Ensure digits, symbols, repeated OCR characters, malformed boundaries, and ending ss are caught.
+        """
+        # Excessive casing/typo ends in "ss"
+        is_noise, _ = self.validator.is_noise("Donald Trumpss")
+        self.assertTrue(is_noise)
+        is_noise, _ = self.validator.is_noise("South Koreass")
+        self.assertTrue(is_noise)
+        
+        # Valid ss words
+        is_noise, _ = self.validator.is_noise("Congress")
+        self.assertFalse(is_noise)
+        is_noise, _ = self.validator.is_noise("business")
+        self.assertFalse(is_noise)
+        
+        # Repeated OCR characters
+        is_noise, _ = self.validator.is_noise("Trumppp")
+        self.assertTrue(is_noise)
+        
+        # Symbols
+        is_noise, _ = self.validator.is_noise("Modi#1")
+        self.assertTrue(is_noise)
+        is_noise, _ = self.validator.is_noise("Amit_Shah")
+        self.assertTrue(is_noise)
+        
+        # Digits/Numeric
+        is_noise, _ = self.validator.is_noise("2026")
+        self.assertTrue(is_noise)
+        is_noise, _ = self.validator.is_noise("G20")
+        self.assertTrue(is_noise)
+
+    def test_casing_quality_penalty(self):
+        """
+        Test that lowercase or chaotic casing gets clamped to a safe penalty of -0.05,
+        preserving recall for RSS feeds and foreign names.
+        """
+        self.assertEqual(self.validator.check_casing_quality("delhi"), -0.05) # lowercase clamped
+        self.assertEqual(self.validator.check_casing_quality("Donald Trump"), 0.0) # good casing
+        self.assertEqual(self.validator.check_casing_quality("donald Trump"), -0.05) # first word lowercase clamped
+
+    def test_strict_geography_and_party(self):
+        """
+        Ensure that only valid cities, states, countries, and parties are accepted.
+        """
+        entities = {
+            "political_parties": ["bjp", "Nonexistent Party"],
+            "countries": ["us", "Atlantis"],
+            "states": ["up", "Fake State"],
+            "cities": ["Bangalore", "Paris"],
+            "people": ["Donald Trump"],
+            "organizations": ["Ministry of External Affairs"]
+        }
+        
+        validated, rejected = self.validator.validate_entities(
+            entities, 
+            title="Meeting about BJP in UP", 
+            summary="US and Bangalore details discussed with Donald Trump", 
+            content="Full content repeats Donald Trump three times to ensure score is high. Donald Trump. Donald Trump.", 
+            source="TOI"
+        )
+        
+        # Geopolitical validation strictness checks
+        self.assertIn("Bharatiya Janata Party", validated["political_parties"])
+        self.assertNotIn("Nonexistent Party", validated["political_parties"])
+        
+        self.assertIn("United States", validated["countries"])
+        self.assertNotIn("Atlantis", validated["countries"])
+        
+        self.assertIn("Uttar Pradesh", validated["states"])
+        self.assertNotIn("Fake State", validated["states"])
+        
+        self.assertIn("Bengaluru", validated["cities"])
+        self.assertNotIn("Paris", validated["cities"])
+        
+        # Check debug tracking works
+        self.assertTrue(any(rec["entity"] == "Nonexistent Party" for rec in rejected["political_parties"]))
+        self.assertTrue(any(rec["entity"] == "Atlantis" for rec in rejected["countries"]))
+        self.assertTrue(any(rec["entity"] == "Paris" for rec in rejected["cities"]))
+
+    def test_category_blacklists(self):
+        """
+        Test that generic administrative nouns or source names are excluded.
+        """
+        entities = {
+            "organizations": ["Cabinet", "Government", "Times of India", "Ministry of Home Affairs"],
+            "people": ["Prime Minister", "Narendra Modi"]
+        }
+        
+        validated, rejected = self.validator.validate_entities(
+            entities, 
+            title="Narendra Modi Cabinet Government meeting", 
+            summary="Ministry of Home Affairs meeting details from Times of India", 
+            content="Narendra Modi, Prime Minister, met Home Ministry leaders.", 
+            source="TOI"
+        )
+        
+        self.assertNotIn("Cabinet", validated["organizations"])
+        self.assertNotIn("Government", validated["organizations"])
+        self.assertNotIn("Times of India", validated["organizations"])
+        self.assertIn("Ministry of Home Affairs", validated["organizations"])
+        
+        self.assertNotIn("Prime Minister", validated["people"])
+        self.assertIn("Narendra Modi", validated["people"])
+
+    def test_fuzzy_deduplication_merging(self):
+        """
+        Test that short and long name variants are resolved and deduplicated.
+        """
+        names = ["Donald Trump", "Trump", "M. K. Stalin", "Stalin", "Rahul Gandhi", "Rahul"]
+        merged = self.validator.merge_fuzzy_duplicates(names)
+        
+        self.assertIn("Donald Trump", merged)
+        self.assertNotIn("Trump", merged)
+        self.assertIn("M. K. Stalin", merged)
+        self.assertNotIn("Stalin", merged)
+        self.assertIn("Rahul Gandhi", merged)
+        self.assertNotIn("Rahul", merged)
+
+    def test_confidence_scoring_math(self):
+        """
+        Verifies mathematical confidence scoring base, boosts, penalties, and thresholds.
+        """
+        title = "Narendra Modi meets Donald Trump"
+        summary = "Bilateral talks between India and US."
+        content = "Donald Trump is mentioned again here to raise frequency."
+        
+        # 1. Dictionary exact match (Narendra Modi) must be 1.0 confidence
+        score_modi, _ = self.validator.calculate_confidence("Narendra Modi", "people", title, summary, content)
+        self.assertEqual(score_modi, 1.0)
+        
+        # 2. Multi-word spaCy entity present in title and content (Donald Trump)
+        # Base (0.5) + Title Boost (0.3) + Repetition 2x (0.05) = 0.85
+        score_trump, reasons = self.validator.calculate_confidence("Donald Trump", "people", title, summary, content)
+        self.assertEqual(score_trump, 0.85)
+        
+        # 3. Single-word spaCy entity that appears only once in content
+        # Base (0.3) + Single Occurrence Penalty (-0.15) = 0.15
+        score_single, reasons_single = self.validator.calculate_confidence("Randomguy", "people", title, summary, content)
+        self.assertEqual(score_single, 0.15)
+
+
+class TestEntityValidatorPackage(unittest.TestCase):
+    def setUp(self):
+        self.normalizer = Normalizer()
+        self.validator = EntityValidator(self.normalizer)
+        self.validator.min_confidence = 0.5
+
+    def test_aggressive_title_stripping(self):
+        """
+        Test that publisher suffixes and updates prefixes are aggressively cleaned from titles.
+        """
+        self.assertEqual(strip_title_source("Donald Trump meets PM Modi | The Guardian"), "Donald Trump meets PM Modi")
+        self.assertEqual(strip_title_source("LIVE: India elections updates - The Times of India"), "India elections updates")
+        self.assertEqual(strip_title_source("Breaking News: Strait of Hormuz conflict | BBC"), "Strait of Hormuz conflict")
+        self.assertEqual(strip_title_source("Crisis in West Bank - DAWN.COM"), "Crisis in West Bank")
+
+    def test_soft_geography_recall_allowance(self):
+        """
+        Verify that unregistered geographical entities (like Strait of Hormuz, West Bank, Rafah, Gaza Strip)
+        successfully bypass dictionary filters and survive when meeting soft heuristics.
+        """
+        entities = {
+            "countries": ["Strait of Hormuz", "Gaza Strip"],
+            "cities": ["Rafah", "Unregistered Place"]
+        }
+        
+        title = "Tension rises in Strait of Hormuz and Gaza Strip"
+        summary = "Reports from the border at Rafah suggest troop deployments."
+        content = "The Strait of Hormuz remains heavily guarded. Gaza Strip is tense. Rafah border is closed."
+        
+        validated, rejected = self.validator.validate_entities(
+            entities, title, summary, content, source="News"
+        )
+        
+        # Should survive because of title presence, multi-word, multiple occurrences, and geo context keywords
+        self.assertIn("Strait of Hormuz", validated["countries"])
+        self.assertIn("Gaza Strip", validated["countries"])
+        self.assertIn("Rafah", validated["cities"])
+        
+        # Should be filtered out because it has zero occurrences, not in title, single occurrences, no geo context
+        self.assertNotIn("Unregistered Place", validated["cities"])
+
+    def test_entity_priority_conflict_resolution(self):
+        """
+        Ensure category classification priority conflicts are resolved correctly:
+        political_parties > people > countries/cities > organizations
+        based on dictionary match and contextual keywords.
+        """
+        entities = {
+            "people": ["Trump", "Labour"],
+            "political_parties": ["Labour"],
+            "organizations": ["Trump", "BBC", "NDA"],
+            "countries": ["NDA"]
+        }
+        
+        # Article context: political/elections campaign
+        title = "Labour Party leads campaign against NDA coalition"
+        summary = "Trump met with BBC representatives in Washington."
+        content = "Trump discussed the upcoming elections. Labour announced its candidates. NDA front is prepared."
+        
+        validated, rejected = self.validator.validate_entities(
+            entities, title, summary, content, source="BBC"
+        )
+        
+        # "Labour" exists in political_parties map (Labor Party) -> political_parties
+        self.assertIn("Labour Party", validated["political_parties"])
+        self.assertNotIn("Labour", validated["people"])
+        self.assertNotIn("Labour", validated["organizations"])
+        
+        # "Trump" exists in politicians_map (Donald Trump) -> people
+        self.assertIn("Donald Trump", validated["people"])
+        self.assertNotIn("Trump", validated["organizations"])
+        
+        # "BBC" -> organization (default priority organization + contextual keywords)
+        self.assertIn("BBC", validated["organizations"])
+        
+        # "NDA" -> political party (National Democratic Alliance in dict) -> political_parties
+        self.assertIn("National Democratic Alliance", validated["political_parties"])
+        self.assertNotIn("NDA", validated["countries"])
+        self.assertNotIn("NDA", validated["organizations"])
+
+    def test_article_level_context_classifier(self):
+        """
+        Verify that article topic context detects 'Politics' and successfully triggers
+        contextual resolutions like mapping generic 'Congress' to 'Indian National Congress'.
+        """
+        # Scenario A: Politics Context
+        entities_a = {
+            "organizations": ["Congress"],
+            "topics": []
+        }
+        title_a = "Congress announces candidate list for upcoming assembly elections"
+        summary_a = "PM Modi slams Congress during campaigning."
+        content_a = "The Congress party will contest all seats. BJP is preparing for polls."
+        
+        validated_a, _ = self.validator.validate_entities(
+            entities_a, title_a, summary_a, content_a, source="News"
+        )
+        
+        # Should be resolved to Indian National Congress under politics context
+        self.assertIn("Indian National Congress", validated_a["political_parties"])
+        self.assertNotIn("Congress", validated_a["organizations"])
+        self.assertIn("Politics", validated_a["topics"])
+        self.assertIn("Elections", validated_a["topics"])
+
+        # Scenario B: Finance Context (without politics keywords)
+        entities_b = {
+            "organizations": ["Congress"],
+            "topics": []
+        }
+        title_b = "US Congress discusses corporate budget, market revenue, and tax inflation"
+        summary_b = "The financial audit of corporate profits was presented."
+        content_b = "Congress passed the budget to stabilize gdp and control inflation rates."
+        
+        validated_b, _ = self.validator.validate_entities(
+            entities_b, title_b, summary_b, content_b, source="News"
+        )
+        
+        # Should remain a standard organization "Congress" under finance context
+        self.assertIn("Congress", validated_b["organizations"])
+        self.assertNotIn("Indian National Congress", validated_b["political_parties"])
+        self.assertIn("Finance", validated_b["topics"])
 
 
 if __name__ == "__main__":
