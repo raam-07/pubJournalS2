@@ -125,6 +125,30 @@ class GoogleSheetsConnector:
                 if parsed:
                     articles.append(parsed)
                     
+            if len(records) > 0 and len(articles) == 0:
+                # Log detailed diagnostics for automatic auditing in GitHub Actions workflow
+                logger.warning("=" * 70)
+                logger.warning("             AUTOMATED PIPELINE DATA DIAGNOSTIC REPORT")
+                logger.warning("=" * 70)
+                logger.warning(f"Total raw records retrieved: {len(records)}")
+                logger.warning(f"Successfully parsed articles: 0 (all rows were empty or missing matching keys)")
+                
+                # Print parsed headers
+                first_record = records[0]
+                headers = list(first_record.keys())
+                logger.warning(f"Detected Sheet Column Headers: {headers}")
+                
+                # Inspect the first 5 records for debugging
+                logger.warning("--- First 5 Records Sample Analysis ---")
+                for i in range(min(5, len(records))):
+                    rec = records[i]
+                    non_empty = {k: v for k, v in rec.items() if str(v).strip() != ""}
+                    if non_empty:
+                        logger.warning(f"Row {i+2} non-empty fields: {json.dumps(non_empty, ensure_ascii=False)}")
+                    else:
+                        logger.warning(f"Row {i+2}: [Completely Empty Grid Row]")
+                logger.warning("=" * 70)
+                
             return articles
         except Exception as e:
             logger.error(f"Error retrieving source articles: {e}")
@@ -135,6 +159,7 @@ class GoogleSheetsConnector:
         Helper that parses a single row record from the source sheet.
         Supports:
         - A single column named 'json' or 'article' containing the serialized JSON string.
+        - Robust fallback: search for any column containing a valid JSON object string.
         - Multiple columns matching 'id' / 'article_id', 'title', 'summary' / 'description',
           'content' / 'body', 'published_at', 'source', 'url'.
         """
@@ -148,6 +173,13 @@ class GoogleSheetsConnector:
 
         # 1. Search for a JSON string column first
         json_col_keys = [k for k in record.keys() if k.lower() in ["json", "article", "article_json"]]
+        if not json_col_keys:
+            # Fallback: search for any column containing a valid JSON object string
+            for k, v in record.items():
+                if isinstance(v, str) and v.strip().startswith("{") and v.strip().endswith("}"):
+                    json_col_keys.append(k)
+                    break
+
         if json_col_keys:
             json_str = record[json_col_keys[0]]
             if json_str and str(json_str).strip() != "":
@@ -163,6 +195,7 @@ class GoogleSheetsConnector:
     def extract_fields_from_dict(self, d: Dict[str, Any], row_num: int) -> Optional[Dict[str, Any]]:
         """
         Extracts expected fields from a dictionary (whether parsed JSON or columns).
+        Normalizes keys efficiently up-front to minimize repeated regex/dictionary iterations.
         """
         if not d or not isinstance(d, dict):
             return None
@@ -173,26 +206,26 @@ class GoogleSheetsConnector:
             return None
 
         import re
-        def normalize_key(key: str) -> str:
-            return re.sub(r"[\s_\-]", "", key.lower())
+        # Construct pre-normalized key dictionary for O(1) case-insensitive lookups
+        norm_d = {}
+        for k, v in d.items():
+            norm_k = re.sub(r"[\s_\-]", "", k.lower())
+            norm_d[norm_k] = v
 
         # Universal ID Mapping (identifies fields representing ID)
         id_keys = ["id", "articleid", "uid", "uuid", "key"]
         article_id = None
         for k in id_keys:
-            # Match normalized key
-            matched_key = next((key for key in d.keys() if normalize_key(key) == k), None)
-            if matched_key is not None and d[matched_key] is not None and str(d[matched_key]).strip() != "":
-                article_id = str(d[matched_key])
+            if k in norm_d and norm_d[k] is not None and str(norm_d[k]).strip() != "":
+                article_id = str(norm_d[k]).strip()
                 break
                 
         # Helper to extract case-insensitive and symbol-agnostic fields
         def get_field(keys: List[str], default: str = "") -> str:
             for k in keys:
-                k_norm = normalize_key(k)
-                matched_key = next((key for key in d.keys() if normalize_key(key) == k_norm), None)
-                if matched_key is not None and d[matched_key] is not None and str(d[matched_key]).strip() != "":
-                    return str(d[matched_key]).strip()
+                k_norm = re.sub(r"[\s_\-]", "", k.lower())
+                if k_norm in norm_d and norm_d[k_norm] is not None and str(norm_d[k_norm]).strip() != "":
+                    return str(norm_d[k_norm]).strip()
             return default
 
         title = get_field(["title", "headline", "subject"])
