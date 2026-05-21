@@ -186,10 +186,6 @@ class GoogleSheetsConnector:
                 article_id = str(d[matched_key])
                 break
                 
-        if article_id is None:
-            logger.warning(f"Row {row_num}: Skipping because no valid ID field ('id', 'article_id') was found.")
-            return None
-            
         # Helper to extract case-insensitive and symbol-agnostic fields
         def get_field(keys: List[str], default: str = "") -> str:
             for k in keys:
@@ -205,6 +201,17 @@ class GoogleSheetsConnector:
         published_at = get_field(["published_at", "published", "date", "created_at"])
         source = get_field(["source", "publisher", "rss_source"])
         url = get_field(["url", "link", "source_url"])
+
+        if article_id is None:
+            # Check if there is any meaningful text content in the row
+            has_content = any(val != "" for val in [title, summary, content, url])
+            if has_content:
+                logger.warning(
+                    f"Row {row_num}: Skipping because it contains content "
+                    f"(title: '{title[:30]}...', url: '{url[:30]}...') "
+                    f"but no valid ID field ('id', 'article_id') was found."
+                )
+            return None
 
         # Fallback: if published_at is empty, use processed_at or general empty string
         # If content is empty, use summary

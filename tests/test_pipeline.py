@@ -192,6 +192,7 @@ class TestSheetsRowParser(unittest.TestCase):
     def test_parse_empty_row_silently(self):
         """
         Verifies that completely empty rows (all fields are None, empty string or whitespace) 
+        and metadata-only rows (having a date or source but missing ID and text content)
         are parsed as None silently without logging warnings.
         """
         empty_row_1 = {
@@ -213,6 +214,19 @@ class TestSheetsRowParser(unittest.TestCase):
         }
         parsed_2 = self.connector.parse_source_record(empty_row_2, 101)
         self.assertIsNone(parsed_2)
+
+        # Metadata-only row (has source and date, but missing ID and article content)
+        metadata_only_row = {
+            "id": "",
+            "title": "",
+            "summary": "   ",
+            "content": "",
+            "published_at": "2026-05-22T02:00:00Z",
+            "source": "RSS Feed",
+            "url": ""
+        }
+        parsed_3 = self.connector.parse_source_record(metadata_only_row, 102)
+        self.assertIsNone(parsed_3)
 
     def test_header_normalization_variations(self):
         """
