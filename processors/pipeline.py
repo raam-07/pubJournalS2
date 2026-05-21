@@ -49,10 +49,22 @@ class Pipeline:
         total_new = len(new_articles)
         total_skipped = total_retrieved - total_new
         
+        # Apply MAX_ARTICLES_PER_RUN cap to restrict maximum items processed in a single execution
+        max_limit = settings.MAX_ARTICLES_PER_RUN
+        capped = False
+        if total_new > max_limit:
+            logger.info(
+                f"New articles found ({total_new}) exceeds MAX_ARTICLES_PER_RUN limit ({max_limit}). "
+                f"Capping this run to the first {max_limit} articles. Rest of backlog will catch up in subsequent runs."
+            )
+            new_articles = new_articles[:max_limit]
+            total_new = len(new_articles)
+            capped = True
+            
         logger.info(
             f"Pipeline Scan Complete. Total Source Articles: {total_retrieved} | "
             f"Already Processed (Skipped): {total_skipped} | "
-            f"New to Process: {total_new}"
+            f"New to Process (Capped={capped}): {total_new}"
         )
         
         metrics = {

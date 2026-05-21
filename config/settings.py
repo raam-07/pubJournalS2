@@ -29,6 +29,8 @@ GOOGLE_CREDENTIALS_FILE = os.getenv("GOOGLE_CREDENTIALS_FILE", "credentials.json
 SPACY_MODEL = os.getenv("SPACY_MODEL", "en_core_web_sm")
 LOOKBACK_ROWS = int(os.getenv("LOOKBACK_ROWS", "2000"))
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
+MAX_ARTICLES_PER_RUN = int(os.getenv("MAX_ARTICLES_PER_RUN", "1000"))
+
 
 # Retry limits for Google Sheets API requests
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "5"))
