@@ -52,7 +52,7 @@ def is_noise(text: str) -> Tuple[bool, str]:
         return True, "Contains invalid symbols"
 
     # 4. Reject obvious OCR corruption: 3 or more identical characters in a row
-    if re.search(r"(.)\1\2", text, re.IGNORECASE):
+    if re.search(r"(.)\1\1", text, re.IGNORECASE):
         return True, "Repeated characters"
 
     # 5. Reject malformed boundaries (unmatched brackets/quotes)
