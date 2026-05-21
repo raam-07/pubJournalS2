@@ -1,0 +1,53 @@
+name: Entity Extraction Intelligence Pipeline
+
+on:
+  schedule:
+    # Runs at the top of every hour automatically
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    # Allows manual trigger via the GitHub Actions dashboard
+
+jobs:
+  run-pipeline:
+    name: Execute Entity Extraction Pipeline
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v3
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Cache Pip Dependencies
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install Python Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Download spaCy Language Model
+        run: |
+          python -m spacy download en_core_web_sm
+
+      - name: Run Extraction Pipeline
+        env:
+          # Securely inject Google Sheets credentials and variables from GitHub Secrets
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          SOURCE_SPREADSHEET_NAME: ${{ secrets.SOURCE_SPREADSHEET_NAME }}
+          SOURCE_WORKSHEET_NAME: ${{ secrets.SOURCE_WORKSHEET_NAME }}
+          DEST_SPREADSHEET_NAME: ${{ secrets.DEST_SPREADSHEET_NAME }}
+          DEST_WORKSHEET_NAME: ${{ secrets.DEST_WORKSHEET_NAME }}
+          LOOKBACK_ROWS: 2000
+          BATCH_SIZE: 100
+          LOG_LEVEL: INFO
+        run: |
+          python main.py

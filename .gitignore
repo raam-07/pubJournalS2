@@ -1,0 +1,25 @@
+# Virtual Environments
+venv/
+env/
+.venv/
+
+# Secrets & Environment Variables
+credentials.json
+.env
+.env.*
+
+# Python Cache & Compilation
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Log Files
+logs/
+*.log
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

@@ -1,0 +1,39 @@
+{
+  "Chief Minister": [
+    "cm",
+    "c.m."
+  ],
+  "Prime Minister": [
+    "pm",
+    "p.m."
+  ],
+  "Member of Parliament": [
+    "mp",
+    "m.p."
+  ],
+  "Member of Legislative Assembly": [
+    "mla",
+    "m.l.a."
+  ],
+  "Lok Sabha": [
+    "ls",
+    "lok sabha"
+  ],
+  "Rajya Sabha": [
+    "rs",
+    "rajya sabha"
+  ],
+  "Supreme Court": [
+    "sc",
+    "supreme court"
+  ],
+  "High Court": [
+    "hc",
+    "high court"
+  ],
+  "Election Commission": [
+    "eci",
+    "election commission of india",
+    "election commission"
+  ]
+}

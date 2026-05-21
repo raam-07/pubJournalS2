@@ -1,0 +1,65 @@
+{
+  "India": [
+    "india",
+    "bharat",
+    "republic of india"
+  ],
+  "United States": [
+    "united states",
+    "us",
+    "usa",
+    "america",
+    "united states of america"
+  ],
+  "China": [
+    "china",
+    "prc",
+    "people's republic of china"
+  ],
+  "Russia": [
+    "russia",
+    "russian federation"
+  ],
+  "United Kingdom": [
+    "united kingdom",
+    "uk",
+    "britain",
+    "great britain"
+  ],
+  "Pakistan": [
+    "pakistan"
+  ],
+  "Bangladesh": [
+    "bangladesh"
+  ],
+  "Nepal": [
+    "nepal"
+  ],
+  "Sri Lanka": [
+    "sri lanka"
+  ],
+  "Japan": [
+    "japan"
+  ],
+  "Germany": [
+    "germany"
+  ],
+  "France": [
+    "france"
+  ],
+  "Australia": [
+    "australia"
+  ],
+  "Canada": [
+    "canada"
+  ],
+  "Saudi Arabia": [
+    "saudi arabia"
+  ],
+  "Iran": [
+    "iran"
+  ],
+  "Israel": [
+    "israel"
+  ]
+}

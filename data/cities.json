@@ -1,0 +1,105 @@
+{
+  "Mumbai": [
+    "mumbai",
+    "bombay"
+  ],
+  "New Delhi": [
+    "new delhi",
+    "delhi city",
+    "lutyens delhi"
+  ],
+  "Bengaluru": [
+    "bengaluru",
+    "bangalore"
+  ],
+  "Kolkata": [
+    "kolkata",
+    "calcutta"
+  ],
+  "Chennai": [
+    "chennai",
+    "madras"
+  ],
+  "Hyderabad": [
+    "hyderabad",
+    "secunderabad"
+  ],
+  "Ahmedabad": [
+    "ahmedabad"
+  ],
+  "Pune": [
+    "pune",
+    "poona"
+  ],
+  "Surat": [
+    "surat"
+  ],
+  "Jaipur": [
+    "jaipur"
+  ],
+  "Lucknow": [
+    "lucknow"
+  ],
+  "Kanpur": [
+    "kanpur"
+  ],
+  "Patna": [
+    "patna"
+  ],
+  "Bhopal": [
+    "bhopal"
+  ],
+  "Chandigarh": [
+    "chandigarh"
+  ],
+  "Srinagar": [
+    "srinagar"
+  ],
+  "Ranchi": [
+    "ranchi"
+  ],
+  "Guwahati": [
+    "guwahati"
+  ],
+  "Thiruvananthapuram": [
+    "thiruvananthapuram",
+    "trivandrum"
+  ],
+  "Bhubaneswar": [
+    "bhubaneswar"
+  ],
+  "Shimla": [
+    "shimla"
+  ],
+  "Dehradun": [
+    "dehradun"
+  ],
+  "Imphal": [
+    "imphal"
+  ],
+  "Agartala": [
+    "agartala"
+  ],
+  "Shillong": [
+    "shillong"
+  ],
+  "Kohima": [
+    "kohima"
+  ],
+  "Aizawl": [
+    "aizawl"
+  ],
+  "Gangtok": [
+    "gangtok"
+  ],
+  "Panaji": [
+    "panaji",
+    "panjim"
+  ],
+  "Itanagar": [
+    "itanagar"
+  ],
+  "Raipur": [
+    "raipur"
+  ]
+}
