@@ -138,6 +138,14 @@ class GoogleSheetsConnector:
         - Multiple columns matching 'id' / 'article_id', 'title', 'summary' / 'description',
           'content' / 'body', 'published_at', 'source', 'url'.
         """
+        if not record or not isinstance(record, dict):
+            return None
+
+        # Check if record is completely empty (all values are empty strings, None, or just whitespace)
+        is_empty = all(val is None or str(val).strip() == "" for val in record.values())
+        if is_empty:
+            return None
+
         # 1. Search for a JSON string column first
         json_col_keys = [k for k in record.keys() if k.lower() in ["json", "article", "article_json"]]
         if json_col_keys:
@@ -156,13 +164,25 @@ class GoogleSheetsConnector:
         """
         Extracts expected fields from a dictionary (whether parsed JSON or columns).
         """
+        if not d or not isinstance(d, dict):
+            return None
+
+        # Check if d is completely empty
+        is_empty = all(val is None or str(val).strip() == "" for val in d.values())
+        if is_empty:
+            return None
+
+        import re
+        def normalize_key(key: str) -> str:
+            return re.sub(r"[\s_\-]", "", key.lower())
+
         # Universal ID Mapping (identifies fields representing ID)
-        id_keys = ["id", "article_id", "uid", "uuid", "key"]
+        id_keys = ["id", "articleid", "uid", "uuid", "key"]
         article_id = None
         for k in id_keys:
-            # Case insensitive match
-            matched_key = next((key for key in d.keys() if key.lower() == k), None)
-            if matched_key is not None and d[matched_key] != "":
+            # Match normalized key
+            matched_key = next((key for key in d.keys() if normalize_key(key) == k), None)
+            if matched_key is not None and d[matched_key] is not None and str(d[matched_key]).strip() != "":
                 article_id = str(d[matched_key])
                 break
                 
@@ -170,12 +190,13 @@ class GoogleSheetsConnector:
             logger.warning(f"Row {row_num}: Skipping because no valid ID field ('id', 'article_id') was found.")
             return None
             
-        # Helper to extract case-insensitive fields
+        # Helper to extract case-insensitive and symbol-agnostic fields
         def get_field(keys: List[str], default: str = "") -> str:
             for k in keys:
-                matched_key = next((key for key in d.keys() if key.lower() == k), None)
-                if matched_key is not None:
-                    return str(d[matched_key])
+                k_norm = normalize_key(k)
+                matched_key = next((key for key in d.keys() if normalize_key(key) == k_norm), None)
+                if matched_key is not None and d[matched_key] is not None and str(d[matched_key]).strip() != "":
+                    return str(d[matched_key]).strip()
             return default
 
         title = get_field(["title", "headline", "subject"])

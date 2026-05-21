@@ -189,6 +189,68 @@ class TestSheetsRowParser(unittest.TestCase):
         self.assertEqual(parsed["title"], "JSON Column Test")
         self.assertEqual(parsed["source"], "API")
 
+    def test_parse_empty_row_silently(self):
+        """
+        Verifies that completely empty rows (all fields are None, empty string or whitespace) 
+        are parsed as None silently without logging warnings.
+        """
+        empty_row_1 = {
+            "ID": "",
+            "Title": "",
+            "Summary": "   ",
+            "Content": "",
+            "Published_At": None,
+            "Source": "",
+            "Url": ""
+        }
+        parsed_1 = self.connector.parse_source_record(empty_row_1, 100)
+        self.assertIsNone(parsed_1)
+
+        empty_row_2 = {
+            "id": None,
+            "article_id": "",
+            "title": None
+        }
+        parsed_2 = self.connector.parse_source_record(empty_row_2, 101)
+        self.assertIsNone(parsed_2)
+
+    def test_header_normalization_variations(self):
+        """
+        Verify that alphanumeric key normalization successfully matches variations in spacing, 
+        casing, underscores, and hyphens (e.g. 'Article ID', 'article_id', 'article-id', 'ARTICLE ID').
+        """
+        variations = [
+            {"Article ID": "1122", "title": "Test 1"},
+            {"article_id": "1122", "title": "Test 2"},
+            {"article-id": "1122", "title": "Test 3"},
+            {"ARTICLE ID": "1122", "title": "Test 4"},
+            {"ArticleID": "1122", "title": "Test 5"},
+            {"UID": "1122", "title": "Test 6"},
+            {"key": "1122", "title": "Test 7"},
+        ]
+        
+        for idx, row in enumerate(variations):
+            parsed = self.connector.extract_fields_from_dict(row, idx)
+            self.assertIsNotNone(parsed, f"Failed parsing variation: {row}")
+            self.assertEqual(parsed["article_id"], "1122")
+
+    def test_field_fallback_when_empty(self):
+        """
+        Verifies that fields with empty/whitespace values successfully check subsequent 
+        fallbacks instead of aborting on the first key that is present but empty.
+        """
+        row_data = {
+            "ID": "777",
+            "summary": "   ",  # present but empty/whitespace
+            "description": "Actual description content",  # fallback should be checked and used
+            "content": "",
+            "body": "Actual body content"
+        }
+        parsed = self.connector.extract_fields_from_dict(row_data, 1)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["summary"], "Actual description content")
+        self.assertEqual(parsed["content"], "Actual body content")
+
 
 if __name__ == "__main__":
     unittest.main()
